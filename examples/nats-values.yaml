@@ -1,0 +1,129 @@
+config:
+  cluster:
+    enabled: true
+    port: 6222
+    replicas: 3
+  jetstream:
+    enabled: true
+    fileStore:
+      enabled: true
+      dir: /data
+      pvc:
+        enabled: true
+        size: 3Gi
+        # storageClassName: <your-storage-class>
+    memoryStore:
+      enabled: true
+      maxSize: 1Gi
+  nats:
+    port: 4222
+  leafnodes:
+    enabled: false
+  websocket:
+    enabled: false
+  gateway:
+    enabled: false
+    port: 7222
+  monitor:
+    enabled: true
+    port: 8222
+  profiling:
+    enabled: true
+    port: 65432
+  resolver:
+    enabled: true
+    dir: /data/resolver
+    ############################################################
+    # stateful set -> volume claim templates -> resolver pvc
+    ############################################################
+    pvc:
+      enabled: true
+      size: 10Gi
+      # storageClassName: <your-storage-class>
+      # merge or patch the pvc
+      # https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.24/#persistentvolumeclaim-v1-core
+      merge: {}
+      patch: []
+      # defaults to "{{ include "nats.fullname" $ }}-resolver"
+      # name:
+    # merge or patch the resolver
+    # https://docs.nats.io/running-a-nats-service/configuration/securing_nats/auth_intro/jwt/resolver
+    merge:
+      type: full
+      allow_delete: true
+      interval: "2m"
+    patch: []
+  merge:
+    max_payload: << 10MB >>
+    operator: << $NATS_OPERATOR_JWT >>
+    # Paste the PUBLIC KEY (ID) of the system account here (starts with AC...)
+    # This is safe to be plain text as it is just a public identifier.
+    system_account: "AC3EJGFF7TYF2SRB36A4KYH3NX23MHBKJCV54TFV2OZBM55ZYNCLEKUP"
+    # Preload allows the server to boot knowing the system account's permissions
+    resolver_preload:
+      # Key = Public ID (Paste same ID as above), Value = JWT (Loaded from Secret)
+      AC3EJGFF7TYF2SRB36A4KYH3NX23MHBKJCV54TFV2OZBM55ZYNCLEKUP: << $NATS_SYSTEM_ACCOUNT_JWT >>
+      ACUEMULLZEAD7POI3NYNYVHXHYCQE4RZRFEENBGY5TGFZVW2GFQCMBQ6: << $NATS_MYAPP_ACCOUNT_JWT >>
+container:
+  env:
+    NATS_OPERATOR_JWT:
+      valueFrom:
+        secretKeyRef:
+          name: nats-auth-jwts
+          key: operator # Written by operator
+    NATS_SYSTEM_ACCOUNT_JWT:
+      valueFrom:
+        secretKeyRef:
+          name: nats-auth-jwts
+          key: main-system-account # Written by operator
+    NATS_MYAPP_ACCOUNT_JWT:
+      valueFrom:
+        secretKeyRef:
+          name: nats-auth-jwts
+          key: myapp-account # Written by operator
+  resources:
+    requests:
+      cpu: "2"
+      memory: 4Gi
+    limits:
+      cpu: "4"
+      memory: 4Gi
+reloader:
+  enabled: true
+  image:
+    repository: natsio/nats-server-config-reloader
+    tag: 0.20.1
+promExporter:
+  enabled: true
+  image:
+    repository: natsio/prometheus-nats-exporter
+    tag: 0.17.3
+  port: 7777
+  podMonitor:
+    enabled: true
+service:
+  enabled: true
+  ports:
+    nats:
+      enabled: true
+    leafnodes:
+      enabled: false
+    websocket:
+      enabled: false
+    mqtt:
+      enabled: false
+    cluster:
+      enabled: true
+    gateway:
+      enabled: false
+    monitor:
+      enabled: true
+    profiling:
+      enabled: true
+podTemplate:
+  configChecksumAnnotation: true
+# pod disruption budget
+podDisruptionBudget:
+  enabled: true
+natsBox:
+  enabled: true

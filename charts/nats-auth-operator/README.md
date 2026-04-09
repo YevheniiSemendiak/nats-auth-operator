@@ -25,7 +25,6 @@ Install from GitHub Container Registry (OCI):
 
 ```bash
 helm install nats-auth-operator oci://ghcr.io/jradikk/charts/nats-auth-operator \
-  --version 0.1.0 \
   --namespace nats-system \
   --create-namespace
 ```
@@ -302,7 +301,6 @@ config:
 
 ```bash
 helm upgrade nats-auth-operator oci://ghcr.io/jradikk/charts/nats-auth-operator \
-  --version 0.1.0 \
   --namespace nats-system
 ```
 

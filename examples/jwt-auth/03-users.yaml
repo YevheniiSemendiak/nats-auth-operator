@@ -21,21 +21,21 @@ spec:
   permissions:
     # Subjects this user can publish to
     publishAllow:
-      - "app.>"          # Application subjects
-      - "$JS.ACK.>"      # JetStream acknowledgments (required for consumers)
-      - "$JS.API.>"      # JetStream API (for stream/consumer management)
-      - "_INBOX.>"       # Request-response patterns
+      - "app.>" # Application subjects
+      - "$JS.ACK.>" # JetStream acknowledgments (required for consumers)
+      - "$JS.API.>" # JetStream API (for stream/consumer management)
+      - "_INBOX.>" # Request-response patterns
 
     publishDeny: []
 
     # Subjects this user can subscribe to
     subscribeAllow:
-      - "app.>"          # Application subjects
-      - "$JS.API.>"      # JetStream API
-      - "_INBOX.>"       # Inbox subjects for request-response
+      - "app.>" # Application subjects
+      - "$JS.API.>" # JetStream API
+      - "_INBOX.>" # Inbox subjects for request-response
 
     subscribeDeny:
-      - "system.>"       # Deny system subjects
+      - "system.>" # Deny system subjects
 
 ---
 # JetStream Consumer User
@@ -104,11 +104,32 @@ spec:
   # Full permissions
   permissions:
     publishAllow:
-      - ">"  # Allow all publish
+      - ">" # Allow all publish
 
     publishDeny: []
 
     subscribeAllow:
-      - ">"  # Allow all subscribe
+      - ">" # Allow all subscribe
 
+    subscribeDeny: []
+
+---
+apiVersion: nats.jradikk/v1alpha1
+kind: NatsUser
+metadata:
+  name: system-admin # use it for system-wide commands and operations like `nats server report connections` or
+  namespace: default
+spec:
+  authConfigRef:
+    name: main
+  authType: jwt
+  accountRef:
+    name: main-system-account
+  username: "system-admin"
+  permissions:
+    publishAllow:
+      - ">"
+    publishDeny: []
+    subscribeAllow:
+      - ">"
     subscribeDeny: []

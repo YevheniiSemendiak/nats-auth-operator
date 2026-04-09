@@ -77,6 +77,13 @@ type JWTConfig struct {
 	// OperatorName is the name of the NATS operator
 	// +kubebuilder:default="NATS Operator"
 	OperatorName string `json:"operatorName,omitempty"`
+
+	// SystemAccountName is the name of the NatsAccount resource that serves as the
+	// NATS system account. If the named NatsAccount does not exist, the operator will
+	// create it automatically. Defaults to "<authconfig-name>-system-account", which
+	// avoids collisions when multiple NatsAuthConfig resources exist in the same namespace.
+	// Set this explicitly only when migrating from a manually-created system account.
+	SystemAccountName string `json:"systemAccountName,omitempty"`
 }
 
 // NatsAuthConfigSpec defines the desired state of NatsAuthConfig
@@ -103,6 +110,9 @@ type NatsAuthConfigSpec struct {
 type NatsAuthConfigStatus struct {
 	// OperatorPubKey is the public key of the NATS operator (JWT mode)
 	OperatorPubKey string `json:"operatorPubKey,omitempty"`
+
+	// SystemAccountPubKey is the public key of the auto-managed system account (JWT mode)
+	SystemAccountPubKey string `json:"systemAccountPubKey,omitempty"`
 
 	// ResolverReady indicates if the resolver is ready (JWT mode)
 	ResolverReady bool `json:"resolverReady,omitempty"`

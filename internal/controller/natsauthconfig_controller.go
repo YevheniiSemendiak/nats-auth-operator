@@ -38,6 +38,11 @@ import (
 
 const (
 	natsAuthConfigFinalizer = "nats.jradikk/authconfig-finalizer"
+
+	// ForceSyncAnnotation can be applied to any CRD to force an immediate full reconcile,
+	// bypassing idempotency guards. The controller removes the annotation after processing.
+	// Usage: kubectl annotate NatsAccount my-acc nats.jradikk/force-sync=$(date +%s) --overwrite
+	ForceSyncAnnotation = "nats.jradikk/force-sync"
 )
 
 // NatsAuthConfigReconciler reconciles a NatsAuthConfig object
@@ -49,6 +54,7 @@ type NatsAuthConfigReconciler struct {
 // +kubebuilder:rbac:groups=nats.jradikk,resources=natsauthconfigs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=nats.jradikk,resources=natsauthconfigs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=nats.jradikk,resources=natsauthconfigs/finalizers,verbs=update
+// +kubebuilder:rbac:groups=nats.jradikk,resources=natsaccounts,verbs=get;list;watch;create;update;patch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 
@@ -77,20 +83,35 @@ func (r *NatsAuthConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 	}
 
+	// Handle force-sync annotation
+	if _, ok := authConfig.Annotations[ForceSyncAnnotation]; ok {
+		patch := client.MergeFrom(authConfig.DeepCopy())
+		delete(authConfig.Annotations, ForceSyncAnnotation)
+		if err := r.Patch(ctx, authConfig, patch); err != nil {
+			return ctrl.Result{}, err
+		}
+		log.Info("Force-sync annotation detected, running full reconcile")
+	}
+
 	// Validate the spec
 	if err := r.validateSpec(authConfig); err != nil {
 		log.Error(err, "Invalid spec")
+		base := authConfig.DeepCopy()
 		r.updateCondition(authConfig, metav1.Condition{
 			Type:    "Ready",
 			Status:  metav1.ConditionFalse,
 			Reason:  "InvalidSpec",
 			Message: err.Error(),
 		})
-		if err := r.Status().Update(ctx, authConfig); err != nil {
+		if err := r.Status().Patch(ctx, authConfig, client.MergeFrom(base)); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: time.Minute}, nil
 	}
+
+	// Snapshot status before reconcile so we can patch only what changed,
+	// avoiding resourceVersion conflicts with concurrent annotation writes.
+	statusBase := authConfig.DeepCopy()
 
 	// Reconcile based on mode
 	var reconcileErr error
@@ -105,7 +126,7 @@ func (r *NatsAuthConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		reconcileErr = fmt.Errorf("unsupported auth mode: %s", authConfig.Spec.Mode)
 	}
 
-	// Update status
+	// Patch status
 	now := metav1.Now()
 	authConfig.Status.LastReconciled = &now
 	authConfig.Status.ObservedGeneration = authConfig.Generation
@@ -118,7 +139,7 @@ func (r *NatsAuthConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			Reason:  "ReconcileError",
 			Message: reconcileErr.Error(),
 		})
-		if err := r.Status().Update(ctx, authConfig); err != nil {
+		if err := r.Status().Patch(ctx, authConfig, client.MergeFrom(statusBase)); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: time.Minute}, reconcileErr
@@ -131,7 +152,7 @@ func (r *NatsAuthConfigReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		Message: "NatsAuthConfig reconciled successfully",
 	})
 
-	if err := r.Status().Update(ctx, authConfig); err != nil {
+	if err := r.Status().Patch(ctx, authConfig, client.MergeFrom(statusBase)); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -173,10 +194,38 @@ func (r *NatsAuthConfigReconciler) reconcileJWTMode(ctx context.Context, authCon
 		return fmt.Errorf("failed to get operator public key: %w", err)
 	}
 
-	// Collect all account JWTs
+	// Ensure the system account NatsAccount resource exists; create it if not.
+	// Default to "<authconfig-name>-system-account" to avoid name collisions
+	// when multiple NatsAuthConfig resources exist in the same namespace.
+	systemAccountName := authConfig.Name + "-system-account"
+	if authConfig.Spec.JWT.SystemAccountName != "" {
+		systemAccountName = authConfig.Spec.JWT.SystemAccountName
+	}
+	if err := r.ensureSystemAccount(ctx, authConfig, systemAccountName); err != nil {
+		return fmt.Errorf("failed to ensure system account: %w", err)
+	}
+
+	// Collect all account JWTs (includes the system account once it has reconciled)
 	accounts, err := r.collectAccountJWTs(ctx, authConfig)
 	if err != nil {
 		return fmt.Errorf("failed to collect account JWTs: %w", err)
+	}
+
+	// Embed system account into operator JWT by looking it up by name.
+	// This makes the trust chain self-contained so the server shows the system
+	// account name under "Trusted Operators" instead of an empty string.
+	for _, acc := range accounts {
+		if acc.AccountName == systemAccountName {
+			if err := operatorMgr.SetSystemAccount(acc.AccountID); err != nil {
+				return fmt.Errorf("failed to set system account on operator JWT: %w", err)
+			}
+			log.Info("Embedded system account in operator JWT", "accountID", acc.AccountID)
+			authConfig.Status.SystemAccountPubKey = acc.AccountID
+			break
+		}
+	}
+	if authConfig.Status.SystemAccountPubKey == "" {
+		log.Info("System account JWT not ready yet — will embed on next reconcile", "systemAccount", systemAccountName)
 	}
 
 	// Build Secret data with individual JWT keys
@@ -391,6 +440,48 @@ func (r *NatsAuthConfigReconciler) getOrCreateOperatorSeed(ctx context.Context, 
 	return seed, nil
 }
 
+// ensureSystemAccount creates the system NatsAccount if it does not already exist.
+// If the account was created by the user before this version of the operator, it is
+// left untouched — the operator will still use it as the system account.
+func (r *NatsAuthConfigReconciler) ensureSystemAccount(ctx context.Context, authConfig *natsv1alpha1.NatsAuthConfig, name string) error {
+	log := log.FromContext(ctx)
+
+	existing := &natsv1alpha1.NatsAccount{}
+	err := r.Get(ctx, client.ObjectKey{Namespace: authConfig.Namespace, Name: name}, existing)
+	if err == nil {
+		// Already exists — nothing to do
+		return nil
+	}
+	if !errors.IsNotFound(err) {
+		return fmt.Errorf("failed to check for system account: %w", err)
+	}
+
+	account := &natsv1alpha1.NatsAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: authConfig.Namespace,
+		},
+		Spec: natsv1alpha1.NatsAccountSpec{
+			AuthConfigRef: natsv1alpha1.NatsAuthConfigRef{
+				Name:      authConfig.Name,
+				Namespace: authConfig.Namespace,
+			},
+			Description: "System account — managed by NatsAuthConfig, do not delete",
+		},
+	}
+
+	if err := controllerutil.SetControllerReference(authConfig, account, r.Scheme); err != nil {
+		return err
+	}
+
+	if err := r.Create(ctx, account); err != nil {
+		return fmt.Errorf("failed to create system account: %w", err)
+	}
+
+	log.Info("Auto-created system account", "name", name)
+	return nil
+}
+
 func (r *NatsAuthConfigReconciler) handleDeletion(ctx context.Context, authConfig *natsv1alpha1.NatsAuthConfig) (ctrl.Result, error) {
 	if controllerutil.ContainsFinalizer(authConfig, natsAuthConfigFinalizer) {
 		// Cleanup logic here if needed
@@ -423,5 +514,6 @@ func (r *NatsAuthConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&natsv1alpha1.NatsAuthConfig{}).
 		Owns(&corev1.Secret{}).
 		Owns(&corev1.ConfigMap{}).
+		Owns(&natsv1alpha1.NatsAccount{}).
 		Complete(r)
 }

@@ -3,6 +3,7 @@ package jwt
 import (
 	"testing"
 
+	natsjwt "github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 )
 
@@ -94,6 +95,105 @@ func TestOperatorManager_SignAccountJWT(t *testing.T) {
 	}
 	if jwt == "" {
 		t.Error("SignAccountJWT() returned empty JWT")
+	}
+}
+
+// SetSystemAccount embeds the system account public key in the operator JWT.
+func TestSetSystemAccount(t *testing.T) {
+	om, err := NewOperatorManager(nil, "TestOperator")
+	if err != nil {
+		t.Fatalf("NewOperatorManager() error = %v", err)
+	}
+
+	// Before setting system account, JWT should have no SystemAccount
+	before, err := natsjwt.DecodeOperatorClaims(om.GetJWT())
+	if err != nil {
+		t.Fatalf("DecodeOperatorClaims() before error = %v", err)
+	}
+	if before.SystemAccount != "" {
+		t.Errorf("expected empty SystemAccount before SetSystemAccount, got %q", before.SystemAccount)
+	}
+
+	// Create a system account and get its public key
+	sysAM, err := NewAccountManager(nil)
+	if err != nil {
+		t.Fatalf("NewAccountManager() error = %v", err)
+	}
+	sysPubKey, err := sysAM.GetPublicKey()
+	if err != nil {
+		t.Fatalf("GetPublicKey() error = %v", err)
+	}
+
+	if err := om.SetSystemAccount(sysPubKey); err != nil {
+		t.Fatalf("SetSystemAccount() error = %v", err)
+	}
+
+	// Operator public key must be unchanged
+	afterPubKey, err := om.GetPublicKey()
+	if err != nil {
+		t.Fatalf("GetPublicKey() after error = %v", err)
+	}
+	if afterPubKey != before.Issuer {
+		t.Errorf("operator public key changed after SetSystemAccount: got %q, want %q", afterPubKey, before.Issuer)
+	}
+
+	// Decode updated JWT and verify SystemAccount is set
+	after, err := natsjwt.DecodeOperatorClaims(om.GetJWT())
+	if err != nil {
+		t.Fatalf("DecodeOperatorClaims() after error = %v", err)
+	}
+	if after.SystemAccount != sysPubKey {
+		t.Errorf("SystemAccount: got %q, want %q", after.SystemAccount, sysPubKey)
+	}
+}
+
+// SetSystemAccount is idempotent — calling it again updates to the new key.
+func TestSetSystemAccountIdempotent(t *testing.T) {
+	om, err := NewOperatorManager(nil, "TestOperator")
+	if err != nil {
+		t.Fatalf("NewOperatorManager() error = %v", err)
+	}
+
+	sys1, _ := NewAccountManager(nil)
+	key1, _ := sys1.GetPublicKey()
+	if err := om.SetSystemAccount(key1); err != nil {
+		t.Fatalf("first SetSystemAccount() error = %v", err)
+	}
+
+	sys2, _ := NewAccountManager(nil)
+	key2, _ := sys2.GetPublicKey()
+	if err := om.SetSystemAccount(key2); err != nil {
+		t.Fatalf("second SetSystemAccount() error = %v", err)
+	}
+
+	decoded, err := natsjwt.DecodeOperatorClaims(om.GetJWT())
+	if err != nil {
+		t.Fatalf("DecodeOperatorClaims() error = %v", err)
+	}
+	if decoded.SystemAccount != key2 {
+		t.Errorf("SystemAccount after second call: got %q, want %q", decoded.SystemAccount, key2)
+	}
+}
+
+// operator keypair must be stable — same seed always produces the same public key.
+func TestOperatorKeypairStability(t *testing.T) {
+	seed := generateTestOperatorSeed(t)
+
+	kp, _ := nkeys.FromSeed(seed)
+	wantPubKey, _ := kp.PublicKey()
+
+	for i := 0; i < 3; i++ {
+		om, err := NewOperatorManager(seed, "TestOperator")
+		if err != nil {
+			t.Fatalf("NewOperatorManager() iteration %d error = %v", i, err)
+		}
+		gotPubKey, err := om.GetPublicKey()
+		if err != nil {
+			t.Fatalf("GetPublicKey() iteration %d error = %v", i, err)
+		}
+		if gotPubKey != wantPubKey {
+			t.Errorf("iteration %d: operator public key changed: got %q, want %q", i, gotPubKey, wantPubKey)
+		}
 	}
 }
 

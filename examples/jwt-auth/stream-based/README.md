@@ -33,28 +33,26 @@ JetStream provides:
 
 1. **accounts.yaml** - Account with JetStream limits
 2. **users.yaml** - Users with stream-specific permissions
-3. **stream-setup.sh** - Script to create JetStream streams
-4. **examples.sh** - Usage examples
 
 ## Account Configuration with JetStream Limits
 
 The account is configured with JetStream-specific limits:
 
 ```yaml
-apiVersion: nats.example.com/v1alpha1
+apiVersion: nats.jradikk/v1alpha1
 kind: NatsAccount
 metadata:
   name: production-streams
 spec:
   limits:
-    # Standard limits
     conn: 100
     subs: 1000
     payload: 1048576
-
-    # JetStream limits (set via account JWT)
-    # These would need to be added to the AccountLimits type
-    # For now, configure in NATS server directly
+    jetstream:
+      memoryStorage: -1
+      diskStorage: -1
+      streams: -1
+      consumer: -1
 ```
 
 ## User Permissions

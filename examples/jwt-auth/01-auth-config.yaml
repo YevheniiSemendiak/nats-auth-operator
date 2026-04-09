@@ -45,7 +45,7 @@ spec:
 # data:
 #   operator: <base64-encoded-operator-JWT>
 #   myapp-account: <base64-encoded-account-JWT>
-#   system-account: <base64-encoded-account-JWT>
+#   main-system-account: <base64-encoded-account-JWT>  # auto-created by the operator
 #   # ... one key per account
 #
 # Reference these in your NATS Helm values using environment variables:

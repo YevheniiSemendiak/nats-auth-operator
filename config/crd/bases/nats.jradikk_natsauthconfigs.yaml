@@ -2,9 +2,9 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: natsauthconfigs.nats.jradikk
   annotations:
-    controller-gen.kubebuilder.io/version: v0.13.0
+    controller-gen.kubebuilder.io/version: v0.16.0
+  name: natsauthconfigs.nats.jradikk
 spec:
   group: nats.jradikk
   names:
@@ -14,20 +14,38 @@ spec:
     singular: natsauthconfig
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.mode
+      name: Mode
+      type: string
+    - jsonPath: .spec.natsURL
+      name: NATS URL
+      type: string
+    - jsonPath: .status.resolverReady
+      name: Ready
+      type: boolean
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: NatsAuthConfig is the Schema for the natsauthconfigs API
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object. Servers should convert recognized schemas to the latest
-              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents. Servers may infer this from the endpoint the client
-              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
@@ -63,6 +81,14 @@ spec:
                     default: /var/lib/nats-resolver
                     description: ResolverDir is the directory path where the resolver
                       is stored
+                    type: string
+                  systemAccountName:
+                    description: |-
+                      SystemAccountName is the name of the NatsAccount resource that serves as the
+                      NATS system account. If the named NatsAccount does not exist, the operator will
+                      create it automatically. Defaults to "<authconfig-name>-system-account", which
+                      avoids collisions when multiple NatsAuthConfig resources exist in the same namespace.
+                      Set this explicitly only when migrating from a manually-created system account.
                     type: string
                 type: object
               mode:
@@ -115,16 +141,8 @@ spec:
                 description: Conditions represent the latest available observations
                   of the object's state
                 items:
-                  description: "Condition contains details for one aspect of the current
-                    state of this API Resource.\n---\nThis struct is intended for
-                    direct use as an array at the field path .status.conditions.  For
-                    example,\n\n\n\ttype FooStatus struct{\n\t    // Represents the
-                    observations of a foo's current state.\n\t    // Known .status.conditions.type
-                    are: \"Available\", \"Progressing\", and \"Degraded\"\n\t    //
-                    +patchMergeKey=type\n\t    // +patchStrategy=merge\n\t    // +listType=map\n\t
-                    \   // +listMapKey=type\n\t    Conditions []metav1.Condition `json:\"conditions,omitempty\"
-                    patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"`\n\n\n\t
-                    \   // other fields\n\t}"
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
                   properties:
                     lastTransitionTime:
                       description: |-
@@ -165,12 +183,7 @@ spec:
                       - Unknown
                       type: string
                     type:
-                      description: |-
-                        type of condition in CamelCase or in foo.example.com/CamelCase.
-                        ---
-                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
-                        useful (see .node.status.conditions), the ability to deconflict is important.
-                        The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
                       maxLength: 316
                       pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
@@ -199,22 +212,13 @@ spec:
                 description: ResolverReady indicates if the resolver is ready (JWT
                   mode)
                 type: boolean
+              systemAccountPubKey:
+                description: SystemAccountPubKey is the public key of the auto-managed
+                  system account (JWT mode)
+                type: string
             type: object
         type: object
     served: true
     storage: true
     subresources:
       status: {}
-    additionalPrinterColumns:
-    - name: Mode
-      type: string
-      jsonPath: .spec.mode
-    - name: NATS URL
-      type: string
-      jsonPath: .spec.natsURL
-    - name: Ready
-      type: boolean
-      jsonPath: .status.resolverReady
-    - name: Age
-      type: date
-      jsonPath: .metadata.creationTimestamp

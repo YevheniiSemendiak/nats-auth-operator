@@ -37,18 +37,14 @@ spec:
     # Allow wildcards in exports
     wildcardExports: true
 
-    # Note: JetStream-specific limits (like max storage, max streams)
-    # are configured at the NATS server level per account.
-    # These limits are enforced by NATS server, not the operator.
-    #
-    # Example NATS server configuration:
-    # accounts {
-    #   production-streams: {
-    #     jetstream: {
-    #       max_mem: 1GB
-    #       max_file: 10GB
-    #       max_streams: 100
-    #       max_consumers: 1000
-    #     }
-    #   }
-    # }
+    # JetStream limits — embedded in the account JWT by the operator
+    # Presence of this block enables JetStream for this account
+    jetstream:
+      memoryStorage: -1       # unlimited memory storage
+      diskStorage: -1         # unlimited disk storage
+      streams: -1             # unlimited streams
+      consumer: -1            # unlimited consumers
+      maxAckPending: -1
+      memoryMaxStreamBytes: -1
+      diskMaxStreamBytes: -1
+      maxBytesRequired: false

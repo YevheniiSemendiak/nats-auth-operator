@@ -10,8 +10,9 @@ import (
 
 // OperatorManager manages NATS operator JWT operations
 type OperatorManager struct {
-	operatorKP nkeys.KeyPair
-	operatorJWT string
+	operatorKP   nkeys.KeyPair
+	operatorJWT  string
+	operatorName string
 }
 
 // NewOperatorManager creates a new operator manager from an existing seed or generates a new one
@@ -51,8 +52,9 @@ func NewOperatorManager(seed []byte, operatorName string) (*OperatorManager, err
 	}
 
 	return &OperatorManager{
-		operatorKP:  kp,
-		operatorJWT: operatorJWT,
+		operatorKP:   kp,
+		operatorJWT:  operatorJWT,
+		operatorName: operatorName,
 	}, nil
 }
 
@@ -74,6 +76,31 @@ func (om *OperatorManager) GetJWT() string {
 // GetKeyPair returns the operator's keypair (for signing account JWTs)
 func (om *OperatorManager) GetKeyPair() nkeys.KeyPair {
 	return om.operatorKP
+}
+
+// SetSystemAccount re-encodes the operator JWT with the given account public key
+// embedded as the SystemAccount field. Call this after the system account is known.
+// The server will then show the system account name under "Trusted Operators" at startup
+// instead of an empty string.
+func (om *OperatorManager) SetSystemAccount(systemAccountPubKey string) error {
+	pubKey, err := om.operatorKP.PublicKey()
+	if err != nil {
+		return fmt.Errorf("failed to get operator public key: %w", err)
+	}
+
+	claims := jwt.NewOperatorClaims(pubKey)
+	claims.Name = om.operatorName
+	claims.Issuer = pubKey
+	claims.IssuedAt = time.Now().Unix()
+	claims.SystemAccount = systemAccountPubKey
+
+	token, err := claims.Encode(om.operatorKP)
+	if err != nil {
+		return fmt.Errorf("failed to re-encode operator JWT with system account: %w", err)
+	}
+
+	om.operatorJWT = token
+	return nil
 }
 
 // SignAccountJWT signs an account JWT with the operator key

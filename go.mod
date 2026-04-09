@@ -1,6 +1,6 @@
 module github.com/jradikk/nats-auth-operator
 
-go 1.22
+go 1.24
 
 require (
 	github.com/nats-io/jwt/v2 v2.5.3

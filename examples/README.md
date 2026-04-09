@@ -17,7 +17,6 @@ examples/
     ├── 01-auth-config.yaml
     ├── 02-accounts.yaml
     ├── 03-users.yaml
-    ├── 04-deployments.yaml
     └── stream-based/    # Examples with JetStream permissions
         ├── README.md
         ├── accounts.yaml
@@ -56,7 +55,7 @@ See [jwt-auth/README.md](jwt-auth/README.md) for details.
 | **Multi-tenancy** | No | Yes |
 | **Account isolation** | No | Yes |
 | **Resource limits** | No | Yes (per account) |
-| **Subject permissions** | Yes | Yes |
+| **Subject permissions** | Stored only (not enforced by server) | Yes |
 | **JetStream streams** | Global | Per account |
 | **Credential rotation** | Manual | Supported |
 | **Best for** | Dev/test, simple apps | Production, multi-tenant |
@@ -83,7 +82,12 @@ Before running these examples, ensure:
    kubectl get pods -n nats-auth-operator-system
    ```
 
-2. **NATS server is deployed** (see [DEPLOYMENT.md](../DEPLOYMENT.md))
+2. **NATS server is deployed**:
+   ```bash
+   helm repo add nats https://nats-io.github.io/k8s/helm/charts/
+   helm upgrade --install nats nats/nats -f examples/nats-values.yaml
+   ```
+   See [nats-values.yaml](nats-values.yaml) for the full values file.
 
 3. **kubectl access** to your cluster
 
@@ -120,5 +124,5 @@ kubectl delete -f examples/jwt-auth/
 
 - Review the specific README in each example directory
 - Modify permissions to match your use case
-- Check [DEPLOYMENT.md](../DEPLOYMENT.md) for production guidance
+- Check [nats-values.yaml](nats-values.yaml) for a complete NATS Helm values reference
 - See [README.md](../README.md) for complete documentation

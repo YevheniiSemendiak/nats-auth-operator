@@ -94,11 +94,23 @@ func (r *NatsUserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		authType = natsv1alpha1.UserAuthType(authConfig.Spec.Mode)
 	}
 
+	// Determine if a full re-reconcile is needed (spec changed or force-sync requested)
+	forceSync := user.Generation != user.Status.ObservedGeneration
+	if _, ok := user.Annotations[ForceSyncAnnotation]; ok {
+		patch := client.MergeFrom(user.DeepCopy())
+		delete(user.Annotations, ForceSyncAnnotation)
+		if err := r.Patch(ctx, user, patch); err != nil {
+			return ctrl.Result{}, err
+		}
+		log.Info("Force-sync annotation detected, running full reconcile")
+		forceSync = true
+	}
+
 	// Reconcile based on auth type
 	var reconcileErr error
 	switch authType {
 	case natsv1alpha1.UserAuthTypeJWT:
-		reconcileErr = r.reconcileJWTUser(ctx, user, authConfig)
+		reconcileErr = r.reconcileJWTUser(ctx, user, authConfig, forceSync)
 	case natsv1alpha1.UserAuthTypeToken:
 		reconcileErr = r.reconcileTokenUser(ctx, user, authConfig)
 	default:
@@ -142,7 +154,7 @@ func (r *NatsUserReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 }
 
-func (r *NatsUserReconciler) reconcileJWTUser(ctx context.Context, user *natsv1alpha1.NatsUser, authConfig *natsv1alpha1.NatsAuthConfig) error {
+func (r *NatsUserReconciler) reconcileJWTUser(ctx context.Context, user *natsv1alpha1.NatsUser, authConfig *natsv1alpha1.NatsAuthConfig, forceSync bool) error {
 	log := log.FromContext(ctx)
 
 	// Validate that account reference is provided
@@ -166,11 +178,13 @@ func (r *NatsUserReconciler) reconcileJWTUser(ctx context.Context, user *natsv1a
 	existingSecret := &corev1.Secret{}
 	checkErr := r.Get(ctx, client.ObjectKey{Namespace: user.Namespace, Name: secretName}, existingSecret)
 	if checkErr == nil {
-		// Credentials already exist - check if we need to update them
-		if user.Status.PublicKey != "" && len(existingSecret.Data["user.creds"]) > 0 {
-			// Credentials exist and status is set - no need to regenerate
-			log.Info("User credentials already exist, skipping regeneration", "publicKey", user.Status.PublicKey)
+		// Credentials already exist - only skip regeneration if spec has not changed and no force-sync
+		if !forceSync && user.Status.PublicKey != "" && len(existingSecret.Data["user.creds"]) > 0 {
+			log.Info("User credentials up-to-date, skipping regeneration", "publicKey", user.Status.PublicKey)
 			return nil
+		}
+		if forceSync {
+			log.Info("Force-sync active, regenerating user credentials", "publicKey", user.Status.PublicKey)
 		}
 	} else if !errors.IsNotFound(checkErr) {
 		return fmt.Errorf("failed to check credentials secret: %w", checkErr)
@@ -325,9 +339,9 @@ func (r *NatsUserReconciler) reconcileTokenUser(ctx context.Context, user *natsv
 			Namespace: user.Namespace,
 		},
 		StringData: map[string]string{
-			"USERNAME":  username,
-			"PASSWORD":  password,
-			"NATS_URL":  authConfig.Spec.NatsURL,
+			"USERNAME": username,
+			"PASSWORD": password,
+			"NATS_URL": authConfig.Spec.NatsURL,
 		},
 	}
 

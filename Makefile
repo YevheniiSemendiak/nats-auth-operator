@@ -107,7 +107,6 @@ deploy: manifests ## Deploy controller to the K8s cluster specified in ~/.kube/c
 	kubectl apply -f config/rbac/leader_election_role.yaml
 	kubectl apply -f config/rbac/leader_election_role_binding.yaml
 	kubectl apply -f config/manager/manager.yaml
-	kubectl apply -f config/crd/bases
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
@@ -130,7 +129,8 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 
 ## Tool Versions
-CONTROLLER_TOOLS_VERSION ?= v0.13.0
+CONTROLLER_TOOLS_VERSION ?= v0.16.0
+ENVTEST_VERSION ?= v0.20.0
 
 .PHONY: controller-gen
 controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
@@ -141,4 +141,8 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.
 $(ENVTEST): $(LOCALBIN)
-	test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+	test -s $(LOCALBIN)/setup-envtest || { \
+		mkdir -p $(LOCALBIN); \
+		curl -L https://github.com/kubernetes-sigs/controller-runtime/releases/download/$(ENVTEST_VERSION)/setup-envtest-$$(go env GOOS)-$$(go env GOARCH) -o $(LOCALBIN)/setup-envtest; \
+		chmod +x $(LOCALBIN)/setup-envtest; \
+	}
